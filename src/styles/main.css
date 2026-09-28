@@ -1,0 +1,346 @@
+:root {
+  --app-sidebar-width: 186px;
+  --app-header-height: 54px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f5f7fa;
+  color: #303133;
+  font: 13px/1.5 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+}
+
+/* 顶栏：与 demo.html 的视觉稿一致，只保留 Element Plus 组件不方便表达的部分 */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: var(--app-header-height);
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.topbar .brand {
+  color: #409eff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.topbar .spacer {
+  flex: 1;
+}
+
+.queue-pill {
+  padding: 3px 12px;
+  border: 1px solid #d9ecff;
+  border-radius: 12px;
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--app-sidebar-width);
+  height: 100%;
+  padding: 8px;
+  background: #fff;
+  border-right: 1px solid #ebeef5;
+}
+
+.side .nav-item {
+  padding: 9px 12px;
+  border-radius: 4px;
+  color: #606266;
+  cursor: pointer;
+  user-select: none;
+}
+
+.side .nav-item:hover {
+  background: #f5f7fa;
+}
+
+.side .nav-item.active {
+  background: #ecf5ff;
+  color: #409eff;
+  font-weight: 600;
+}
+
+.side .foot {
+  margin-top: auto;
+  padding: 8px 12px;
+  color: #909399;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.page {
+  padding: 14px;
+}
+
+.crumb {
+  padding: 2px 2px 10px;
+  color: #909399;
+  font-size: 12.5px;
+}
+
+.crumb b {
+  color: #303133;
+}
+
+.crumb .link {
+  color: #409eff;
+  cursor: pointer;
+}
+
+.muted {
+  color: #909399;
+  font-size: 12px;
+}
+
+.mono {
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.empty-block {
+  padding: 40px 0;
+  color: #909399;
+  text-align: center;
+}
+
+.logbox {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+.logline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px dashed #f0f2f5;
+  font-size: 12.5px;
+}
+
+.logline:last-child {
+  border-bottom: 0;
+}
+
+.logline .lstep {
+  flex: none;
+  width: 34px;
+  color: #909399;
+  font-family: Consolas, monospace;
+}
+
+.logline .ms {
+  margin-left: auto;
+  color: #909399;
+  font-family: Consolas, monospace;
+}
+
+.logfact {
+  padding: 2px 10px 6px 52px;
+  border-bottom: 1px dashed #f0f2f5;
+  color: #909399;
+  font-size: 12.5px;
+}
+
+.logfact.warn {
+  color: #b88230;
+}
+
+.op-tag {
+  display: inline-block;
+  min-width: 74px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: Consolas, monospace;
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.op-CLICK,
+.op-GOTO,
+.op-WAIT {
+  background: #ecf5ff;
+  color: #2f7fd6;
+}
+
+.op-TYPE_TEXT {
+  background: #f4f0ff;
+  color: #7355c9;
+}
+
+.op-SELECT,
+.op-DONE {
+  background: #eef8ee;
+  color: #3f9b52;
+}
+
+.op-UPLOAD {
+  background: #fdf6ec;
+  color: #b88230;
+}
+
+.op-SCROLL_DOWN,
+.op-SCROLL_UP,
+.op-PRESS_KEY {
+  background: #f4f4f5;
+  color: #8a8f99;
+}
+
+.steps-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.steps-bar .chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #dcdfe6;
+  border-radius: 50%;
+  background: #fff;
+  color: #909399;
+  font-size: 12px;
+}
+
+.steps-bar .chip.passed {
+  border-color: #67c23a;
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.steps-bar .chip.failed {
+  border-color: #f56c6c;
+  background: #fef0f0;
+  color: #f56c6c;
+  font-weight: 700;
+}
+
+.steps-bar .chip.running {
+  border-color: #409eff;
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.steps-bar .chip.skipped {
+  border-style: dashed;
+}
+
+.shot-wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shot-card {
+  width: 220px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.shot-card img {
+  display: block;
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  object-position: top;
+  background: #f5f7fa;
+}
+
+.shot-card .cap {
+  padding: 4px 8px;
+  color: #909399;
+  font-size: 11.5px;
+}
+
+.plan-tree {
+  margin: 0;
+  padding: 8px 10px;
+  font: 12.5px/1.7 Consolas, 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.kv {
+  font-family: Consolas, monospace;
+  color: #606266;
+}
+
+.conf-low {
+  color: #e6a23c;
+}
+
+/* el-card 的 body 默认是块级，竖直 flex 链在这里断了：
+   补上后卡被右侧面板拉高时，编辑器面板才会跟着长（否则左下留一块空白） */
+.editor-panel > .el-card__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 运行区/日志区的工具行：之前没写样式，靠块流 + 占位 div 换行，挤成一团 */
+.run-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Element Plus 会给相邻按钮加 margin-left，跟 gap 叠加会忽宽忽窄 */
+.run-bar .el-button + .el-button {
+  margin-left: 0;
+}
+
+.palette-panel > .el-card__body {
+  padding: 12px 14px;
+}
+
+.palette-hint {
+  margin-bottom: 6px;
+  color: #909399;
+  font-size: 11.5px;
+}
+
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Element Plus 会给相邻按钮加 margin-left，这里要竖排顶格 */
+.palette-list .el-button + .el-button {
+  margin-left: 0;
+}
+
+.palette-list .el-button {
+  width: 100%;
+  justify-content: flex-start;
+}
