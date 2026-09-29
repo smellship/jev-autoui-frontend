@@ -219,10 +219,11 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <el-table :data="filtered" size="small" empty-text="还没有运行记录">
-        <el-table-column label="运行" width="170">
+        <el-table-column label="运行" width="180">
           <template #default="{ row }">
             <span class="link mono" style="color: #409eff; cursor: pointer" @click="openRun(row)">{{ row.id }}</span>
             <div class="muted">{{ formatDateTime(row.created_at) }}</div>
+            <div v-if="row.batch_code" class="muted mono" style="margin-top: 2px">批次 {{ row.batch_code }}</div>
           </template>
         </el-table-column>
         <el-table-column label="用例" min-width="200">
@@ -253,7 +254,7 @@ onBeforeUnmount(() => {
           <template #default="{ row }"><span class="muted">{{ row.triggered_by || '—' }}</span></template>
         </el-table-column>
         <el-table-column prop="detail" label="说明" min-width="180" show-overflow-tooltip />
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="openRun(row)">打开</el-button>
             <el-button size="small" text @click="openReport(row)">报告</el-button>

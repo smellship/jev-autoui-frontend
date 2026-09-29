@@ -7,14 +7,12 @@ import { nodeApi, scenarioApi } from '@/api'
 import type { Node, Scenario } from '@/api/types'
 import ScenarioDialog from '@/components/ScenarioDialog.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { useRunStarter } from '@/composables/useRunStarter'
 import { useUiStore } from '@/stores/ui'
 import { formatTime } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
 
 const router = useRouter()
 const ui = useUiStore()
-const { runScenario } = useRunStarter()
 
 const tree = ref<Node[]>([])
 const scenarios = ref<Scenario[]>([])
@@ -313,10 +311,9 @@ onMounted(async () => {
               <span class="muted">{{ row.last_run ? formatTime(row.last_run.created_at) : '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="190">
+          <el-table-column label="操作" width="150">
             <template #default="{ row }">
               <el-button size="small" text type="primary" @click="openScenario(row)">打开</el-button>
-              <el-button size="small" text type="primary" @click="runScenario(row.id, row.name)">运行</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => onMoreCommand(cmd, row)">
                 <el-button size="small" text>更多</el-button>
                 <template #dropdown>

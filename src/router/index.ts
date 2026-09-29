@@ -19,6 +19,24 @@ const router = createRouter({
         { path: '', redirect: '/cases' },
         { path: 'cases', name: 'cases', component: () => import('@/views/CaseManageView.vue'), meta: { title: '用例管理' } },
         {
+          path: 'scenes',
+          name: 'scenes',
+          component: () => import('@/views/SceneManageView.vue'),
+          meta: { title: '场景管理' },
+        },
+        {
+          path: 'scenes/new',
+          name: 'scene-new',
+          component: () => import('@/views/SceneEditView.vue'),
+          meta: { title: '临时串跑' },
+        },
+        {
+          path: 'scenes/:id',
+          name: 'scene-detail',
+          component: () => import('@/views/SceneEditView.vue'),
+          meta: { title: '场景管理' },
+        },
+        {
           path: 'scenarios/:id',
           name: 'scenario',
           component: () => import('@/views/ScenarioView.vue'),

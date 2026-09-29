@@ -1,7 +1,9 @@
 import { del, get, patch, post, put } from '@/api/client'
 import type {
+  BatchBrief,
   CaseBrief,
   CaseDetail,
+  CaseListItem,
   CompileResult,
   DraftResult,
   Env,
@@ -15,6 +17,8 @@ import type {
   RunDetail,
   SaveResult,
   Scenario,
+  Suite,
+  SuiteDetail,
   User,
   VersionDetail,
   VersionRow,
@@ -67,6 +71,9 @@ export const scenarioApi = {
 }
 
 export const caseApi = {
+  /** 全局用例池（场景管理）：可按节点（含子孙）/场景/关键字过滤。 */
+  list: (params: { node_id?: number; scenario_id?: string; q?: string; page?: number; size?: number } = {}) =>
+    get<Page<CaseListItem>>('/cases', params),
   detail: (id: string) => get<CaseDetail>(`/cases/${id}`),
   save: (id: string, body: { yaml_text: string; version: number; comment?: string }) =>
     put<SaveResult>(`/cases/${id}`, body),
@@ -95,6 +102,25 @@ export const envApi = {
   delSecret: (id: number, key: string) => del(`/envs/${id}/secrets/${encodeURIComponent(key)}`),
   probe: (id: number, url = '') => post<ProbeResult>(`/envs/${id}/probe`, { url }),
   pages: (id: number) => get<{ items: PageRow[]; total: number }>(`/envs/${id}/pages`),
+}
+
+export const suiteApi = {
+  list: (params: { q?: string; page?: number; size?: number } = {}) => get<Page<Suite>>('/suites', params),
+  create: (body: { name: string; owner?: string; tags?: string[]; description?: string }) =>
+    post<Suite>('/suites', body),
+  detail: (id: string) => get<SuiteDetail>(`/suites/${id}`),
+  update: (id: string, body: Record<string, unknown>) => patch<Suite>(`/suites/${id}`, body),
+  remove: (id: string) => del(`/suites/${id}`),
+  copy: (id: string, name?: string) => post<Suite>(`/suites/${id}/copy`, name ? { name } : {}),
+  setCases: (id: string, caseIds: string[]) =>
+    put<{ id: string; count: number }>(`/suites/${id}/cases`, { case_ids: caseIds }),
+  run: (id: string, body: { env_id: number; mode?: string }) => post<BatchBrief>(`/suites/${id}/run`, body),
+}
+
+export const batchApi = {
+  create: (body: { case_ids: string[]; env_id: number; mode?: string }) => post<BatchBrief>('/batches', body),
+  detail: (code: string) => get<BatchBrief>(`/batches/${code}`),
+  stop: (code: string) => post<{ id: string; status: string; aborted: number }>(`/batches/${code}/stop`),
 }
 
 export const runApi = {

@@ -16,7 +16,7 @@ import { showApiError } from '@/utils/notify'
 const route = useRoute()
 const router = useRouter()
 const ui = useUiStore()
-const { runCase, runScenario } = useRunStarter()
+const { runCase } = useRunStarter()
 
 const scenarioId = computed(() => String(route.params.id || ''))
 const scenario = ref<Scenario | null>(null)
@@ -105,7 +105,6 @@ onMounted(async () => {
           </span>
           <div style="flex: 1" />
           <el-button size="small" @click="editVisible = true">编辑场景</el-button>
-          <el-button size="small" @click="runScenario(scenarioId, scenario?.name || '场景')">整场景串跑</el-button>
           <el-button size="small" type="primary" @click="dialogVisible = true">+ 新建用例</el-button>
         </div>
       </template>

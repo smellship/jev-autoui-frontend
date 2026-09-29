@@ -36,6 +36,7 @@ export interface RunBrief {
   scenario_name: string
   env: string
   mode: Mode
+  batch_code: string
   status: RunStatus
   kernel_status: string
   detail: string
@@ -81,6 +82,50 @@ export interface CaseDetail extends CaseBrief {
   yaml_text: string
   scenario_code: string
   scenario_name: string
+}
+
+/** 全局用例列表项（场景管理用例池）：case_brief + 场景名。 */
+export interface CaseListItem extends CaseBrief {
+  scenario_code: string
+  scenario_name: string
+}
+
+export interface Suite {
+  id: string
+  name: string
+  owner: string
+  tags: string[]
+  description: string
+  case_count: number
+  last_batch: BatchSummary | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SuiteDetail extends Suite {
+  items: CaseListItem[]
+  missing: Array<{ id: string; name: string }>
+}
+
+export type BatchCounts = Record<RunStatus, number>
+
+/** 批次汇总（从同 batch_code 的运行台账推导）。 */
+export interface BatchSummary {
+  code: string
+  label: string
+  suite_id: string | null
+  env: string
+  mode: Mode
+  triggered_by: string
+  created_at: string | null
+  total: number
+  done: boolean
+  counts: BatchCounts
+}
+
+export interface BatchBrief extends BatchSummary {
+  current: RunBrief | null
+  items: RunBrief[]
 }
 
 export interface CheckResult {

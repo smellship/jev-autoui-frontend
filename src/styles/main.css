@@ -319,6 +319,12 @@ body {
   margin-left: 0;
 }
 
+/* 表格操作列：el-dropdown 包着按钮，吃不到 .el-button + .el-button 的 12px 间距，
+   「更多」会贴着前一个按钮（实测两按钮盒边距为 0） */
+.el-table .cell .el-button + .el-dropdown {
+  margin-left: 12px;
+}
+
 .palette-panel > .el-card__body {
   padding: 12px 14px;
 }

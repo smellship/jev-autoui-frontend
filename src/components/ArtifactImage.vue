@@ -18,7 +18,15 @@ const visible = ref(false)
     <div v-else-if="error" class="shot-ph err">加载失败</div>
     <div v-else class="shot-ph">加载中…</div>
     <div class="cap">{{ caption }}</div>
-    <el-image-viewer v-if="visible && src" :url-list="[src]" @close="visible = false" />
+    <!-- teleported：必须挂到 body。留在 .shot-card 里会被 `.shot-card img` 的缩略图样式套住
+         （大图被裁成 100%×132 的横条，看着像空白），点关闭的点击还会冒泡回卡片的 @click 立刻重开 -->
+    <el-image-viewer
+      v-if="visible && src"
+      :url-list="[src]"
+      teleported
+      hide-on-click-modal
+      @close="visible = false"
+    />
   </div>
 </template>
 

@@ -15,6 +15,7 @@ const router = useRouter()
 
 const NAV = [
   { name: 'cases', label: '用例管理' },
+  { name: 'scenes', label: '场景管理' },
   { name: 'runs', label: '运行记录' },
   { name: 'envs', label: '环境管理' },
   { name: 'settings', label: '用户/设置' },
@@ -23,6 +24,7 @@ const NAV = [
 const activeNav = computed(() => {
   const name = String(route.name || '')
   if (name === 'scenario' || name === 'case-detail') return 'cases'
+  if (name === 'scene-new' || name === 'scene-detail') return 'scenes'
   return name
 })
 

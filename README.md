@@ -54,9 +54,12 @@ npm run preview      # 本地预览构建产物
 | --- | --- | --- |
 | `/login` | 登录 | 账号密码 → `/auth/login` |
 | `/cases` | 用例管理 | 场景树 + 场景下的用例表；新建场景/用例（用例 id 由后端按场景分配，创建即 v1） |
-| `/scenarios/:id` | 场景 | 场景信息、整场景串跑、用例增删 |
+| `/scenarios/:id` | 场景 | 场景信息、用例增删（整场景串跑已并入「场景管理」） |
+| `/scenes` | 场景管理 | 套件平铺列表（编号 su-0001、用例数、最近批次与通过/中止汇总）；行内改名 / 复制 / 删除；「临时串跑」进即席页 |
+| `/scenes/:id` | 套件编辑器 | 左侧用例池（节点树 + 搜名/编号 + 跨场景）→ 右侧有序清单（上移/下移/移除、未保存提示、保存清单）；「开始串跑」先自动保存再起批次，批次进度卡轮询 `/batches/{code}`（停止批次 / 关闭） |
+| `/scenes/new` | 临时串跑 | 同款编辑器但不落套件：直接 `POST /batches`；「存为套件」可把当前清单转成正式套件 |
 | `/cases/:id` | 用例详情 | 自然语言框 + Monaco（同一份内容，不分模式）+ 右侧「快捷插入」+ 运行区（步骤结果 / 决策日志 / 产物清单 / 历史运行）+ 版本抽屉；「导入老脚本」把 midscene.js 转成 YAML 灌进编辑器 |
-| `/runs` | 运行记录 | 台账筛选（状态/模式/环境/日期）、页内搜索、导出 CSV、报告与重出 |
+| `/runs` | 运行记录 | 台账筛选（状态/模式/环境/日期）、页内搜索、导出 CSV、报告与重出；批次成员挂 `批次 b-…` 标记可反查 |
 | `/envs` | 环境管理 | 环境配置、密钥（只写，可删单个键）、页清单、探针 |
 | `/settings` | 用户/设置 | 账号信息（昵称可改、账号只读、密码只显示"已设置"）、本人改密码；管理员多一块用户管理（新建 / 改昵称 / 停用·启用 / 设为·取消管理员 / 重置密码，自己那一行的停用与权限按钮禁用） |
 
@@ -80,6 +83,10 @@ npm run preview      # 本地预览构建产物
 
 - 统一错误体 `{ code, message, detail }`；前端识别 `version_conflict`(409)、`lint_failed`(422)、
   `env_unconfigured`、`env_in_use`、`scenario_not_empty` 等码做专门提示。
+- 串跑：发起收 202 批次 brief（`POST /batches` 直接传有序 `case_ids`；套件走 `POST /suites/{id}/run`），
+  进度轮询 `GET /batches/{code}`（`done` + `counts{passed,failed,aborted,…}`），停止 POST `/batches/{code}/stop`
+  （已终态再停 409 `batch_not_active`）；套件存清单 `PUT /suites/{id}/cases` 遇到已删用例引用 409 `suite_has_missing`（先「移除这些引用」）。
+  失败默认继续跑完剩余用例，批次汇总里单独计数。
 - 列表统一 `?page=&size=`，返回 `{ items, total, page, size }`。
 - 运行产物：根目录 `plan.json / summary.json / trace.jsonl / actions.json / report.html / screenshots/ / snapshots/`，
   计划模式下每步还有 `steps/<dir>/…`；前端两套布局都兼容。
