@@ -2,8 +2,8 @@
 import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { authApi, userApi } from '@/api'
-import type { User } from '@/api/types'
+import { authApi, settingsApi, userApi } from '@/api'
+import type { ModelKeyStatus, User } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
@@ -21,6 +21,11 @@ const loadingUsers = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const createForm = ref({ account: '', name: '', password: '' })
+
+const modelKeys = ref<ModelKeyStatus[]>([])
+const keyDrafts = ref<Record<string, string>>({})
+const loadingKeys = ref(false)
+const savingKeys = ref(false)
 
 watch(
   () => auth.user?.name,
@@ -195,7 +200,64 @@ async function toggleAdmin(row: User): Promise<void> {
   }
 }
 
-onMounted(loadUsers)
+async function loadKeys(): Promise<void> {
+  if (!auth.isAdmin) return
+  loadingKeys.value = true
+  try {
+    modelKeys.value = (await settingsApi.modelKeys()).items
+    keyDrafts.value = Object.fromEntries(modelKeys.value.map((item) => [item.key, '']))
+  } catch (error) {
+    showApiError(error, '取模型 Key 状态失败')
+  } finally {
+    loadingKeys.value = false
+  }
+}
+
+async function saveKeys(): Promise<void> {
+  const body: Record<string, string> = {}
+  for (const item of modelKeys.value) {
+    const value = (keyDrafts.value[item.key] || '').trim()
+    if (value) body[item.key] = value
+  }
+  if (!Object.keys(body).length) {
+    ElMessage.warning('输入框都是空的：填一把要保存的 Key，或用行末「清除」移除已设置的')
+    return
+  }
+  savingKeys.value = true
+  try {
+    const result = await settingsApi.saveModelKeys(body)
+    ElMessage.success(result.changed.length ? '已保存，对之后的内核调用生效' : '值与已存的一样，没有变化')
+    await loadKeys()
+  } catch (error) {
+    showApiError(error, '保存模型 Key 失败')
+  } finally {
+    savingKeys.value = false
+  }
+}
+
+async function clearKey(item: ModelKeyStatus): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `清除「${item.label}」？清除后内核缺少对应模型的凭据，相关运行会失败，直到重新配置。`,
+      '清除模型 Key',
+      { type: 'warning', confirmButtonText: '清除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await settingsApi.saveModelKeys({ [item.key]: '' })
+    ElMessage.success(`已清除「${item.label}」`)
+    await loadKeys()
+  } catch (error) {
+    showApiError(error, '清除失败')
+  }
+}
+
+onMounted(() => {
+  void loadUsers()
+  void loadKeys()
+})
 </script>
 
 <template>
@@ -322,6 +384,56 @@ onMounted(loadUsers)
       <span class="muted">
         用户管理需要管理员权限：当前账号是普通成员，只能改自己的昵称与密码。要新增账号请找管理员。
       </span>
+    </el-card>
+
+    <el-card v-if="auth.isAdmin">
+      <template #header>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <b>模型 API Key</b>
+          <span class="muted">内核运行要用的两把 Key · 仅管理员可见</span>
+          <div style="flex: 1" />
+          <el-button size="small" type="primary" :loading="savingKeys" @click="saveKeys()">保存</el-button>
+        </div>
+      </template>
+      <el-form v-loading="loadingKeys" label-width="150px" style="max-width: 860px" @submit.prevent>
+        <el-form-item v-for="item in modelKeys" :key="item.key">
+          <template #label>
+            <div style="line-height: 1.45">
+              <div>{{ item.label }}</div>
+              <div class="muted mono" style="font-size: 12px">{{ item.env_name }}</div>
+            </div>
+          </template>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <el-input
+              v-model="keyDrafts[item.key]"
+              type="password"
+              show-password
+              style="width: 300px"
+              autocomplete="off"
+              :placeholder="item.set ? '已设置（留空表示不改）' : '粘贴 Key 后点右上角保存'"
+            />
+            <el-tag v-if="item.set" size="small" type="success" disable-transitions>已设置</el-tag>
+            <el-tag v-else size="small" type="info" disable-transitions>未设置</el-tag>
+            <span v-if="item.source === 'env'" class="muted" style="font-size: 12px">
+              来自服务器环境变量，平台上清除不了
+            </span>
+            <el-button
+              v-if="item.source === 'file'"
+              size="small"
+              text
+              type="danger"
+              @click="clearKey(item)"
+            >
+              清除
+            </el-button>
+          </div>
+          <div class="muted" style="font-size: 12px; margin-top: 2px">{{ item.hint }}</div>
+        </el-form-item>
+      </el-form>
+      <div class="muted" style="font-size: 12px">
+        值写在服务器本地 secrets/_model_keys.local.yaml（gitignore，只写不读）；接口不回显，只显示「已设置」。
+        保存后对之后的内核调用立即生效，不用重启服务。
+      </div>
     </el-card>
 
     <el-dialog v-model="createVisible" title="新建用户" width="520px">

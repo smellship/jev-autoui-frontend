@@ -350,3 +350,29 @@ body {
   width: 100%;
   justify-content: flex-start;
 }
+
+.palette-list .el-dropdown {
+  width: 100%;
+}
+
+/* 「新增步骤 / 新增断言」模板菜单：浮层 teleport 到 body，样式必须放全局 */
+.palette-menu {
+  min-width: 264px;
+  /* 极矮窗口兜底：菜单在浮层里自己滚，不超出视口（否则底部条目点不到） */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.palette-menu .el-dropdown-menu__item {
+  display: block;
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.palette-menu .palette-menu-desc {
+  color: #909399;
+  font-size: 12px;
+}

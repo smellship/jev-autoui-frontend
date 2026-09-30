@@ -9,6 +9,7 @@ import type {
   Env,
   ImportResult,
   LoginResult,
+  ModelKeyStatus,
   Node,
   Page,
   PageRow,
@@ -40,6 +41,13 @@ export const userApi = {
   update: (id: number, body: { name?: string; active?: boolean; is_admin?: boolean }) =>
     patch<User>(`/users/${id}`, body),
   resetPassword: (id: number, password: string) => post<{ ok: boolean }>(`/users/${id}/password`, { password }),
+}
+
+/** 模型 API Key（仅管理员）：只写不读，值落 secrets/，保存后对后续内核调用生效。 */
+export const settingsApi = {
+  modelKeys: () => get<{ items: ModelKeyStatus[] }>('/settings/model-keys'),
+  saveModelKeys: (body: Record<string, string | null>) =>
+    put<{ items: ModelKeyStatus[]; changed: string[] }>('/settings/model-keys', body),
 }
 
 export const nodeApi = {

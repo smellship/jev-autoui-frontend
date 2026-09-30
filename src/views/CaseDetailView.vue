@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 
 import { caseApi, runApi } from '@/api'
 import type {
@@ -364,17 +365,108 @@ function insertField(field: { label: string; key: string; snippet: string }): vo
   else if (mode === 'appended') ElMessage.success(`已在末尾加上 ${field.label}，填好值再保存`)
 }
 
-function addStep(): void {
+/** 浮层改用 fixed 定位：默认 absolute 的浮层挂在 body 上会把文档撑高——冒出窗口滚动条、
+    浏览器为露出菜单还会自动滚窗，整个页面会跳一下 */
+const FIXED_POPPER = { strategy: 'fixed' }
+
+/** 短窗口兜底：fixed 浮层不撑页面了，但 popper 自带的避让在这里不生效，菜单底部会超出窗口。
+    打开后量一次：超出就把浮层整体上移（marginTop，不碰 popper 的 inset 定位），比窗口还高就限高。
+    用 offsetTop/offsetHeight（布局值，不受入场缩放进度影响）测量；先还原再量，重复跑安全 */
+let paletteFitOff: (() => void) | null = null
+
+function stopPaletteFit(): void {
+  paletteFitOff?.()
+  paletteFitOff = null
+}
+
+function fitPaletteMenu(): void {
+  const applyFit = (): void => {
+    const popper = [...document.querySelectorAll<HTMLElement>('.el-dropdown__popper')]
+      .find((el) => getComputedStyle(el).display !== 'none')
+    if (!popper) return
+    popper.style.marginTop = ''
+    const pad = 12
+    const vh = window.innerHeight
+    const maxH = vh - pad * 2
+    const naturalH = popper.offsetHeight
+    if (naturalH > maxH) {
+      popper.style.maxHeight = `${maxH}px`
+      popper.style.overflowY = 'auto'
+    } else {
+      popper.style.maxHeight = ''
+      popper.style.overflowY = ''
+    }
+    const h = Math.min(naturalH, maxH)
+    const top = popper.offsetTop
+    let shift = 0
+    if (top + h > vh - pad) shift = vh - pad - (top + h)
+    if (top + shift < pad) shift = pad - top
+    popper.style.marginTop = shift ? `${shift}px` : ''
+  }
+  const retry = (tries: number): void => {
+    const popper = [...document.querySelectorAll<HTMLElement>('.el-dropdown__popper')]
+      .find((el) => getComputedStyle(el).display !== 'none')
+    if (popper && popper.offsetTop > 0) applyFit()
+    else if (tries > 0) requestAnimationFrame(() => retry(tries - 1))
+    else applyFit()
+  }
+  if (!paletteFitOff) {
+    // 浮层开着时触发器还会被滚动/改窗挪位置，popper 会更新 inset 但不会带上我们的位移，跟着重算
+    const onMove = (): void => {
+      requestAnimationFrame(applyFit)
+    }
+    window.addEventListener('scroll', onMove, { capture: true, passive: true })
+    window.addEventListener('resize', onMove, { passive: true })
+    paletteFitOff = () => {
+      window.removeEventListener('scroll', onMove, { capture: true })
+      window.removeEventListener('resize', onMove)
+    }
+  }
+  void nextTick(() => {
+    requestAnimationFrame(() => retry(10))
+    window.setTimeout(applyFit, 300) // 入场动画结束后校正一遍
+  })
+}
+
+/** 动作模板：goal 骨架与内核可执行动作白名单一致（ui_agent/act/executor.py 的 EXECUTABLE） */
+const STEP_TEMPLATES: Array<{ key: string; label: string; desc: string; goal: string }> = [
+  { key: 'open', label: '打开页面', desc: '默认用环境地址；要换页给该步加 url:', goal: '打开「」页面' },
+  { key: 'click', label: '点击', desc: '按钮 / 链接 / 菜单项', goal: '点击「」' },
+  { key: 'input', label: '输入文本', desc: '值放 vars，引用不能写进 goal', goal: '在「」填入用例给定的值' },
+  { key: 'select', label: '下拉选择', desc: '在「下拉框」里选中某个选项', goal: '在「」下拉中选择「」' },
+  { key: 'upload', label: '上传文件', desc: 'vars 给文件路径，键名随控件标签', goal: '上传文件到「」' },
+  { key: 'key', label: '按键', desc: 'Enter 提交 / Escape 关浮层', goal: '按「Enter」键' },
+  { key: 'hover', label: '悬停', desc: '展开子菜单或提示', goal: '悬停到「」' },
+  { key: 'scroll', label: '滚动', desc: '滚动到某元素可见', goal: '滚动到「」' },
+  { key: 'wait', label: '等待', desc: '控件未出现或结果加载中', goal: '等待页面更新' },
+  { key: 'blank', label: '空白步骤', desc: 'goal 和断言都自己写', goal: '' },
+]
+
+function addStep(key: string): void {
+  const tpl = STEP_TEMPLATES.find((item) => item.key === key) ?? STEP_TEMPLATES[STEP_TEMPLATES.length - 1]
   const indent = editorRef.value?.listIndent('steps') ?? 0
   const pad = ' '.repeat(indent)
   const inner = ' '.repeat(indent + 2)
-  editorRef.value?.appendSnippet([`${pad}- goal: `, `${inner}checks:`, `${inner}- text_contains: `])
-  ElMessage.success('已在末尾追加一个步骤（goal + checks 骨架），断言类型和值按需改')
+  editorRef.value?.appendSnippet([`${pad}- goal: ${tpl.goal}`, `${inner}checks:`, `${inner}- text_contains: `])
+  ElMessage.success(tpl.goal
+    ? `已追加「${tpl.label}」步骤骨架：把「」里补上目标描述，断言按需改`
+    : '已在末尾追加一个步骤（goal + checks 骨架），断言类型和值按需改')
 }
 
-function addCheck(): void {
-  const ok = editorRef.value?.appendCheck('text_contains: ')
-  if (ok) ElMessage.success('已给最后一步加了一条断言，类型和值按需改')
+/** 断言模板：类型与内核断言白名单一致（ui_agent/verify/asserts.py 的 KINDS） */
+const ASSERT_TEMPLATES: Array<{ key: string; label: string; desc: string }> = [
+  { key: 'text_contains', label: '文本包含', desc: '页面可见文字里出现这段内容' },
+  { key: 'url_contains', label: '地址包含', desc: '当前地址里包含这段路径 / 参数' },
+  { key: 'title_contains', label: '标题包含', desc: '浏览器标签标题里出现这段文字' },
+  { key: 'element_exists', label: '元素存在', desc: '页面上找得到这个元素（按描述匹配）' },
+  { key: 'element_absent', label: '元素不存在', desc: '页面上找不到这个元素（如浮层已关）' },
+  { key: 'element_value', label: '元素值等于', desc: '控件当前值 = 期望值，写法 描述|期望值' },
+]
+
+function addCheck(key: string): void {
+  const tpl = ASSERT_TEMPLATES.find((item) => item.key === key) ?? ASSERT_TEMPLATES[0]
+  const ok = editorRef.value?.appendCheck(`${tpl.key}: `)
+  if (ok) ElMessage.success(`已给最后一步加上「${tpl.label}」断言，把值补上：${tpl.desc}`)
   else ElMessage.warning('还没有步骤，先点「新增步骤」')
 }
 
@@ -576,6 +668,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(stopStream)
+onBeforeUnmount(stopPaletteFit)
 
 onBeforeRouteLeave(async () => {
   if (!dirty.value) return true
@@ -726,11 +819,39 @@ onBeforeRouteLeave(async () => {
         </div>
         <div class="palette-hint" style="margin-top: 14px">可重复 · 总是追加到末尾</div>
         <div class="palette-list">
-          <el-button size="small" @click="addStep()">新增步骤</el-button>
-          <el-button size="small" @click="addCheck()">新增断言</el-button>
-        </div>
-        <div class="muted" style="margin-top: 14px; line-height: 1.8">
-          断言类型：text_contains、url_contains、title_contains、element_exists、element_absent、element_value
+          <el-dropdown trigger="click" :popper-options="FIXED_POPPER"
+                       @command="(cmd: string) => addStep(cmd)"
+                       @visible-change="(v: boolean) => v ? fitPaletteMenu() : stopPaletteFit()">
+            <el-button size="small">
+              新增步骤
+              <el-icon style="margin-left: auto"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu class="palette-menu">
+                <el-dropdown-item v-for="tpl in STEP_TEMPLATES" :key="tpl.key" :command="tpl.key"
+                                  :divided="tpl.key === 'blank'">
+                  <div class="palette-menu-name">{{ tpl.label }}</div>
+                  <div class="palette-menu-desc">{{ tpl.desc }}</div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-dropdown trigger="click" :popper-options="FIXED_POPPER"
+                       @command="(cmd: string) => addCheck(cmd)"
+                       @visible-change="(v: boolean) => v ? fitPaletteMenu() : stopPaletteFit()">
+            <el-button size="small">
+              新增断言
+              <el-icon style="margin-left: auto"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu class="palette-menu">
+                <el-dropdown-item v-for="tpl in ASSERT_TEMPLATES" :key="tpl.key" :command="tpl.key">
+                  <div class="palette-menu-name">{{ tpl.label }}</div>
+                  <div class="palette-menu-desc">{{ tpl.desc }}</div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-card>
     </div>

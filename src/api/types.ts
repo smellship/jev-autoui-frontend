@@ -233,6 +233,16 @@ export interface EnvSecretKey {
   set: boolean
 }
 
+/** 模型 API Key 状态（管理员设置页）：值只写不读，只回是否已设置与来源。 */
+export interface ModelKeyStatus {
+  key: string
+  label: string
+  hint: string
+  env_name: string
+  set: boolean
+  source: 'file' | 'env' | null
+}
+
 export interface ProbeResult {
   env: string
   input_url: string
