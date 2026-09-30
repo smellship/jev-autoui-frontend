@@ -10,7 +10,7 @@ import ScenarioDialog from '@/components/ScenarioDialog.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { useRunStarter } from '@/composables/useRunStarter'
 import { useUiStore } from '@/stores/ui'
-import { formatDateTime, formatTime } from '@/utils/format'
+import { formatTime } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
 
 const route = useRoute()
@@ -127,7 +127,11 @@ onMounted(async () => {
         <el-table-column label="用例" min-width="220">
           <template #default="{ row }">
             <span class="link" style="color: #409eff; cursor: pointer" @click="openCase(row)">{{ row.name }}</span>
-            <div class="muted">{{ row.id }} · v{{ row.version }} · {{ row.updated_by }} {{ formatDateTime(row.updated_at) }}</div>
+            <div class="muted meta-line">
+              <span>{{ row.id }} · v{{ row.version }}</span>
+              <span>创建 {{ row.created_by || '—' }}</span>
+              <span>最后 {{ row.updated_by || '—' }} {{ formatTime(row.updated_at) }}</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="优先级" width="80">

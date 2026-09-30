@@ -145,6 +145,13 @@ function onNodeCommand(command: string, node: Node): void {
   else if (command === 'delete') void deleteNode(node)
 }
 
+function lastActor(row: Scenario): string {
+  // 「最后一次由谁修改或运行」：场景自身的编辑与它下面用例的最近一次运行，谁的钟点晚算谁
+  const runAt = row.last_run?.created_at || ''
+  if (runAt > (row.updated_at || '')) return row.last_run?.triggered_by || ''
+  return row.updated_by
+}
+
 function openScenario(row: Scenario): void {
   void router.push({ name: 'scenario', params: { id: row.id } })
 }
@@ -281,7 +288,9 @@ onMounted(async () => {
         </template>
 
         <el-table v-loading="loading" :data="scenarios" size="small" empty-text="这个节点下还没有场景">
-          <el-table-column label="场景" min-width="180">
+          <!-- 列宽全部走 min-width：富余宽度按比例摊给每一列（窗口变宽不再只撑大「场景」），
+               收窄到下限前都不裁字；下限之和 692px 已在窄窗口实测过 -->
+          <el-table-column label="场景" min-width="120" show-overflow-tooltip>
             <template #default="{ row }">
               <span class="link" style="color: #409eff; cursor: pointer" @click="openScenario(row)">
                 {{ row.name }}
@@ -289,7 +298,7 @@ onMounted(async () => {
               <span v-if="row.tags?.length" class="muted" style="margin-left: 6px">{{ row.tags.join(' / ') }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="优先级" width="80">
+          <el-table-column label="优先级" min-width="60">
             <template #default="{ row }">
               <el-tag size="small" :type="row.priority === 'P1' ? 'warning' : row.priority === 'P0' ? 'danger' : 'info'"
                       disable-transitions>
@@ -297,21 +306,33 @@ onMounted(async () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="用例数" width="80">
+          <el-table-column label="用例数" min-width="56">
             <template #default="{ row }">{{ row.case_count }}</template>
           </el-table-column>
-          <el-table-column label="最近结果" width="100">
+          <el-table-column label="创建人" min-width="72">
+            <template #default="{ row }">
+              <span v-if="row.created_by">{{ row.created_by }}</span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="最后修改/运行" min-width="100">
+            <template #default="{ row }">
+              <span v-if="lastActor(row)">{{ lastActor(row) }}</span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="最近结果" min-width="72">
             <template #default="{ row }">
               <StatusTag v-if="row.last_run" :status="row.last_run.status" />
               <span v-else class="muted">—</span>
             </template>
           </el-table-column>
-          <el-table-column label="最近运行" width="120">
+          <el-table-column label="最近运行" min-width="92">
             <template #default="{ row }">
               <span class="muted">{{ row.last_run ? formatTime(row.last_run.created_at) : '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="150">
+          <el-table-column label="操作" min-width="124">
             <template #default="{ row }">
               <el-button size="small" text type="primary" @click="openScenario(row)">打开</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => onMoreCommand(cmd, row)">

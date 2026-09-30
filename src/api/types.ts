@@ -62,6 +62,9 @@ export interface Scenario {
   env_id: number | null
   case_count: number
   last_run: RunBrief | null
+  created_by: string
+  updated_by: string
+  updated_at: string | null
 }
 
 export interface CaseBrief {
@@ -72,6 +75,7 @@ export interface CaseBrief {
   tags: string[]
   owner: string
   version: number
+  created_by: string
   updated_by: string
   updated_at: string | null
   last_run: RunBrief | null
