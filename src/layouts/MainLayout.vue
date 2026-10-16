@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ProbeButton from '@/components/ProbeButton.vue'
+import PolicySwitches from '@/components/PolicySwitches.vue'
 import type { Mode } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
@@ -118,6 +119,8 @@ onUnmounted(() => {
           <el-radio-button value="ci">ci</el-radio-button>
         </el-radio-group>
       </span>
+
+      <PolicySwitches v-if="auth.isAdmin" />
 
       <div class="spacer" />
 

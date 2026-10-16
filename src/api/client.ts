@@ -79,6 +79,7 @@ export async function patch<T>(url: string, body?: unknown): Promise<T> {
   return data
 }
 
-export async function del(url: string, params?: Record<string, unknown>): Promise<void> {
-  await http.delete(url, { params })
+export async function del<T = void>(url: string, params?: Record<string, unknown>): Promise<T> {
+  const { data } = await http.delete<T>(url, { params })
+  return data
 }

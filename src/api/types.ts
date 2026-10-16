@@ -29,6 +29,22 @@ export type Mode = 'debug' | 'ci'
 export type RunStatus = 'queued' | 'running' | 'passed' | 'failed' | 'aborted' | 'unverified' | 'error'
 export type EnvAuth = 'unknown' | 'none' | 'login_form'
 
+/** 用例级互斥挡位：none=不限制；env=同环境串行；account=同环境同账号串行（解析不到账号时降级为 env）。 */
+export type MutexLevel = 'none' | 'env' | 'account'
+
+/**
+ * 运行策略（提交时快照，存档在运行台账上）：
+ * decider/supervisor 是两个模型开关的规范形（jev+监督=全开；llm+监督=只开大模型；
+ * jev 无监督=只开 Jev；off 无监督=全关零模型）；cache/cache_strict=回放缓存与严判。
+ * 老台账没有快照（空对象）时按默认「全开」对待。
+ */
+export interface RunPolicy {
+  decider: 'jev' | 'llm' | 'off'
+  supervisor: boolean
+  cache: boolean
+  cache_strict: boolean
+}
+
 export interface RunBrief {
   id: string
   case_id: string
@@ -46,7 +62,10 @@ export interface RunBrief {
   finished_at: string | null
   duration_ms: number | null
   triggered_by: string
+  user_id: number | null
   queue_position: number | null
+  mutex: MutexLevel
+  policy?: Partial<RunPolicy>
   report_url: string
   events_url: string
 }
@@ -75,6 +94,7 @@ export interface CaseBrief {
   tags: string[]
   owner: string
   version: number
+  mutex: MutexLevel
   created_by: string
   updated_by: string
   updated_at: string | null
@@ -137,6 +157,7 @@ export interface CheckResult {
   expected: string
   ok: boolean
   evidence: string
+  attempts?: number
 }
 
 export interface StepResult {
@@ -161,6 +182,8 @@ export interface Artifact {
 }
 
 export interface RunDetail extends RunBrief {
+  /** 互斥降级提示：账号挡但没解析到账号时为非空文案，其余为空串。 */
+  mutex_note: string
   checks: CheckResult[]
   steps_detail: StepResult[]
   defect_candidates: string[]
@@ -247,6 +270,29 @@ export interface ModelKeyStatus {
   source: 'file' | 'env' | null
 }
 
+/** 模型端点配置（管理员设置页）：地址/模型名非秘密、可回显；file > 服务器 env > 内核默认。 */
+export interface ModelEndpointStatus {
+  key: string
+  env_name: string
+  group: 'text' | 'typesafe'
+  field: 'base_url' | 'model'
+  label: string
+  value: string
+  source: 'file' | 'env' | null
+  default: string
+}
+
+/** 并行调度设置（管理员设置页）：max=全局并行上限（硬上限 hard_max=8），k=每人最多路数。 */
+export interface RunSettings {
+  pending: number
+  running: number
+  pool: number
+  max: number
+  k: number
+  concurrency: number
+  hard_max: number
+}
+
 export interface ProbeResult {
   env: string
   input_url: string
@@ -282,10 +328,30 @@ export interface PageRow {
   source_case_id: number | null
 }
 
+export interface ProfileSlot {
+  slot: string
+  size: number
+  path: string
+}
+
+/** trace.jsonl 分层行类型：生命周期 / 逐决策 / 断言 / 模型调用 / 回放缓存。旧产物没有 kind，按决策行对待。 */
+export type TraceRowKind =
+  | 'run_start'
+  | 'run_end'
+  | 'step_start'
+  | 'step_end'
+  | 'decision'
+  | 'assert'
+  | 'model'
+  | 'cache'
+
 /** 聚合 trace.jsonl 的一行（内核产出，平台原样透传）。 */
 export interface TraceRow {
-  step?: number
+  kind?: TraceRowKind
+  seq?: number
+  at?: string
   plan_step?: number
+  step?: number
   time?: string
   url?: string
   title?: string
@@ -295,7 +361,7 @@ export interface TraceRow {
   confidence?: number
   latency_ms?: number
   signal?: { kind?: string; detail?: string } | null
-  supervisor?: Record<string, unknown> | null
+  supervisor?: boolean | Record<string, unknown> | null
   page_facts?: Array<Record<string, unknown>>
   click_failures?: number
   text_model?: string
@@ -311,6 +377,40 @@ export interface TraceRow {
     occluded_by?: string
     trace?: { ok?: boolean; changed?: boolean; level?: string; reason?: string }
   }
+  // 生命周期行
+  goal?: string
+  attempt?: number
+  status?: string
+  status_label?: string
+  detail?: string
+  decisions?: number
+  mode?: string
+  headless?: boolean
+  viewport?: string
+  steps?: number
+  duration_s?: number
+  defects?: number
+  vars?: string[]
+  decision_model?: string
+  // 断言行
+  ok?: boolean
+  attempts?: number
+  elapsed_ms?: number
+  checks?: CheckResult[]
+  // 模型行
+  stage?: string
+  model?: string
+  error?: string
+  // 回放缓存行（kind="cache"，mode 复用上面的 mode 字段）
+  write?: string
+  hits?: number
+  misses?: number
+  miss_reasons?: Record<string, number>
+  kept_steps?: number
+  saved_steps?: number
+  no_change_steps?: number
+  evicted_steps?: number
+  dropped_steps?: number
   [key: string]: unknown
 }
 

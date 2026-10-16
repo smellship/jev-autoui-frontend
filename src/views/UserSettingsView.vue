@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { authApi, settingsApi, userApi } from '@/api'
-import type { ModelKeyStatus, User } from '@/api/types'
+import type { ModelEndpointStatus, ModelKeyStatus, RunSettings, User } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
@@ -23,9 +23,54 @@ const creating = ref(false)
 const createForm = ref({ account: '', name: '', password: '' })
 
 const modelKeys = ref<ModelKeyStatus[]>([])
+const modelEndpoints = ref<ModelEndpointStatus[]>([])
 const keyDrafts = ref<Record<string, string>>({})
+const endpointDrafts = ref<Record<string, string>>({})
+const endpointInitial = ref<Record<string, string>>({})
 const loadingKeys = ref(false)
 const savingKeys = ref(false)
+
+const modelGroups = computed(() =>
+  modelKeys.value.map((item) => {
+    const group = item.key === 'text_model_api_key' ? 'text' : 'typesafe'
+    const pick = (field: 'base_url' | 'model') =>
+      modelEndpoints.value.find((e) => e.group === group && e.field === field)
+    return {
+      item,
+      title: group === 'text' ? '文本模型' : '决策模型',
+      baseUrl: pick('base_url'),
+      model: pick('model'),
+    }
+  }),
+)
+
+function epSourceText(source: ModelEndpointStatus['source']): string {
+  return source === 'file' ? '平台保存' : source === 'env' ? '服务器环境变量' : '内核默认'
+}
+
+function epSourceTag(source: ModelEndpointStatus['source']): 'success' | 'warning' | 'info' {
+  return source === 'file' ? 'success' : source === 'env' ? 'warning' : 'info'
+}
+
+const runSettings = ref<RunSettings | null>(null)
+const runMax = ref(1)
+const runK = ref(1)
+const loadingRun = ref(false)
+const savingRun = ref(false)
+
+watch(runK, (value) => {
+  if (value > runMax.value) {
+    runK.value = runMax.value
+    ElMessage.warning(`每人路数 k 不能大于并发上限 max，已自动置为 ${runMax.value}`)
+  }
+})
+
+watch(runMax, (value) => {
+  if (runK.value > value) {
+    runK.value = value
+    ElMessage.warning(`并发上限调小了，每人路数 k 已随之下调为 ${value}`)
+  }
+})
 
 watch(
   () => auth.user?.name,
@@ -204,10 +249,14 @@ async function loadKeys(): Promise<void> {
   if (!auth.isAdmin) return
   loadingKeys.value = true
   try {
-    modelKeys.value = (await settingsApi.modelKeys()).items
-    keyDrafts.value = Object.fromEntries(modelKeys.value.map((item) => [item.key, '']))
+    const data = await settingsApi.modelKeys()
+    modelKeys.value = data.items
+    modelEndpoints.value = data.endpoints
+    keyDrafts.value = Object.fromEntries(data.items.map((item) => [item.key, '']))
+    endpointDrafts.value = Object.fromEntries(data.endpoints.map((e) => [e.key, e.value]))
+    endpointInitial.value = { ...endpointDrafts.value }
   } catch (error) {
-    showApiError(error, '取模型 Key 状态失败')
+    showApiError(error, '取模型配置失败')
   } finally {
     loadingKeys.value = false
   }
@@ -219,8 +268,13 @@ async function saveKeys(): Promise<void> {
     const value = (keyDrafts.value[item.key] || '').trim()
     if (value) body[item.key] = value
   }
+  // 端点只在改动过时提交：未动的 env 来源值不会顺带复制进平台文件
+  for (const ep of modelEndpoints.value) {
+    const draft = (endpointDrafts.value[ep.key] ?? '').trim()
+    if (draft !== (endpointInitial.value[ep.key] ?? '').trim()) body[ep.key] = draft
+  }
   if (!Object.keys(body).length) {
-    ElMessage.warning('输入框都是空的：填一把要保存的 Key，或用行末「清除」移除已设置的')
+    ElMessage.warning('没有要保存的改动：Key 填一个值再保存；地址/模型名清空保存=恢复内核默认')
     return
   }
   savingKeys.value = true
@@ -229,7 +283,7 @@ async function saveKeys(): Promise<void> {
     ElMessage.success(result.changed.length ? '已保存，对之后的内核调用生效' : '值与已存的一样，没有变化')
     await loadKeys()
   } catch (error) {
-    showApiError(error, '保存模型 Key 失败')
+    showApiError(error, '保存模型配置失败')
   } finally {
     savingKeys.value = false
   }
@@ -254,9 +308,40 @@ async function clearKey(item: ModelKeyStatus): Promise<void> {
   }
 }
 
+async function loadRun(): Promise<void> {
+  if (!auth.isAdmin) return
+  loadingRun.value = true
+  try {
+    const data = await settingsApi.run()
+    runSettings.value = data
+    runMax.value = data.max
+    runK.value = data.k
+  } catch (error) {
+    showApiError(error, '取并行调度设置失败')
+  } finally {
+    loadingRun.value = false
+  }
+}
+
+async function saveRun(): Promise<void> {
+  const max = runMax.value
+  const k = Math.min(runK.value, max)
+  if (k !== runK.value) runK.value = k
+  savingRun.value = true
+  try {
+    runSettings.value = await settingsApi.saveRun({ max, k })
+    ElMessage.success('已保存：对之后新派发的运行立即生效，已在跑的运行不受影响')
+  } catch (error) {
+    showApiError(error, '保存并行调度设置失败')
+  } finally {
+    savingRun.value = false
+  }
+}
+
 onMounted(() => {
   void loadUsers()
   void loadKeys()
+  void loadRun()
 })
 </script>
 
@@ -389,50 +474,131 @@ onMounted(() => {
     <el-card v-if="auth.isAdmin">
       <template #header>
         <div style="display: flex; align-items: center; gap: 8px">
-          <b>模型 API Key</b>
-          <span class="muted">内核运行要用的两把 Key · 仅管理员可见</span>
+          <b>模型 API 配置</b>
+          <span class="muted">内核要用的 Key、API 地址与模型名 · 仅管理员可见</span>
           <div style="flex: 1" />
           <el-button size="small" type="primary" :loading="savingKeys" @click="saveKeys()">保存</el-button>
         </div>
       </template>
-      <el-form v-loading="loadingKeys" label-width="150px" style="max-width: 860px" @submit.prevent>
-        <el-form-item v-for="item in modelKeys" :key="item.key">
+      <el-form v-loading="loadingKeys" label-width="110px" style="max-width: 920px" @submit.prevent>
+        <el-form-item v-for="g in modelGroups" :key="g.item.key">
           <template #label>
             <div style="line-height: 1.45">
-              <div>{{ item.label }}</div>
-              <div class="muted mono" style="font-size: 12px">{{ item.env_name }}</div>
+              <div>{{ g.title }}</div>
+              <div class="muted mono" style="font-size: 12px">{{ g.item.env_name }}</div>
             </div>
           </template>
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
-            <el-input
-              v-model="keyDrafts[item.key]"
-              type="password"
-              show-password
-              style="width: 300px"
-              autocomplete="off"
-              :placeholder="item.set ? '已设置（留空表示不改）' : '粘贴 Key 后点右上角保存'"
-            />
-            <el-tag v-if="item.set" size="small" type="success" disable-transitions>已设置</el-tag>
-            <el-tag v-else size="small" type="info" disable-transitions>未设置</el-tag>
-            <span v-if="item.source === 'env'" class="muted" style="font-size: 12px">
-              来自服务器环境变量，平台上清除不了
-            </span>
-            <el-button
-              v-if="item.source === 'file'"
-              size="small"
-              text
-              type="danger"
-              @click="clearKey(item)"
+          <div style="width: 100%">
+            <div
+              v-if="g.baseUrl"
+              style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px"
             >
-              清除
-            </el-button>
+              <span class="muted" style="width: 64px; flex: none">API 地址</span>
+              <el-input
+                v-model="endpointDrafts[g.baseUrl.key]"
+                style="width: 460px; max-width: 100%"
+                :placeholder="`内核默认：${g.baseUrl.default}`"
+              />
+              <el-tag size="small" disable-transitions :type="epSourceTag(g.baseUrl.source)">
+                {{ epSourceText(g.baseUrl.source) }}
+              </el-tag>
+            </div>
+            <div
+              v-if="g.model"
+              style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px"
+            >
+              <span class="muted" style="width: 64px; flex: none">模型名</span>
+              <el-input
+                v-model="endpointDrafts[g.model.key]"
+                style="width: 260px; max-width: 100%"
+                :placeholder="`内核默认：${g.model.default}`"
+              />
+              <el-tag size="small" disable-transitions :type="epSourceTag(g.model.source)">
+                {{ epSourceText(g.model.source) }}
+              </el-tag>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span class="muted" style="width: 64px; flex: none">API Key</span>
+              <el-input
+                v-model="keyDrafts[g.item.key]"
+                type="password"
+                show-password
+                style="width: 300px"
+                autocomplete="off"
+                :placeholder="g.item.set ? '已设置（留空表示不改）' : '粘贴 Key 后点右上角保存'"
+              />
+              <el-tag v-if="g.item.set" size="small" type="success" disable-transitions>已设置</el-tag>
+              <el-tag v-else size="small" type="info" disable-transitions>未设置</el-tag>
+              <span v-if="g.item.source === 'env'" class="muted" style="font-size: 12px">
+                来自服务器环境变量，平台上清除不了
+              </span>
+              <el-button
+                v-if="g.item.source === 'file'"
+                size="small"
+                text
+                type="danger"
+                @click="clearKey(g.item)"
+              >
+                清除
+              </el-button>
+            </div>
+            <div class="muted" style="font-size: 12px; margin-top: 4px">{{ g.item.hint }}</div>
           </div>
-          <div class="muted" style="font-size: 12px; margin-top: 2px">{{ item.hint }}</div>
         </el-form-item>
       </el-form>
       <div class="muted" style="font-size: 12px">
-        值写在服务器本地 secrets/_model_keys.local.yaml（gitignore，只写不读）；接口不回显，只显示「已设置」。
+        Key 只写不读；API 地址与模型名会回显（值落服务器本地 secrets/_model_keys.local.yaml，gitignore）。
+        地址留空保存=恢复内核默认；用中转站/替代网关就改这里的地址（决策模型须兼容 Jev/SystemOne 协议）。
         保存后对之后的内核调用立即生效，不用重启服务。
+      </div>
+    </el-card>
+
+    <el-card v-if="auth.isAdmin">
+      <template #header>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <b>并行调度</b>
+          <span class="muted">全局并发上限与每人路数 · 仅管理员可见</span>
+          <div style="flex: 1" />
+          <el-button size="small" type="primary" :loading="savingRun" @click="saveRun()">保存</el-button>
+        </div>
+      </template>
+      <el-form v-loading="loadingRun" label-width="150px" style="max-width: 860px" @submit.prevent>
+        <el-form-item>
+          <template #label>
+            <div style="line-height: 1.45">
+              <div>并发上限</div>
+              <div class="muted mono" style="font-size: 12px">max</div>
+            </div>
+          </template>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <el-input-number v-model="runMax" :min="1" :max="runSettings?.hard_max || 8" size="small" />
+            <span class="muted" style="font-size: 12px">
+              硬上限 {{ runSettings?.hard_max || 8 }} · 当前在跑 {{ runSettings?.running ?? 0 }} ·
+              排队 {{ runSettings?.pending ?? 0 }}
+            </span>
+          </div>
+          <div class="muted" style="font-size: 12px; margin-top: 2px">
+            同时最多几个运行在跑；1 = 全队列串行（默认）
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <template #label>
+            <div style="line-height: 1.45">
+              <div>每人最多路数</div>
+              <div class="muted mono" style="font-size: 12px">k</div>
+            </div>
+          </template>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <el-input-number v-model="runK" :min="1" :max="runSettings?.hard_max || 8" size="small" />
+            <span class="muted" style="font-size: 12px">
+              同一个人同时最多跑几个（超过 max 会自动压到 max）；每路用独立的浏览器登录态（独立 profile 目录），互不打扰
+            </span>
+          </div>
+        </el-form-item>
+      </el-form>
+      <div class="muted" style="font-size: 12px">
+        保存后立即生效：调大马上能让排队的跑起来；调小只影响之后新派发的运行，不会打断已在跑的。
+        用例页可给单个用例设互斥挡位（同环境 / 同账号），命中互斥的后来者排队等待。
       </div>
     </el-card>
 

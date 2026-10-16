@@ -9,13 +9,18 @@ import type {
   Env,
   ImportResult,
   LoginResult,
+  ModelEndpointStatus,
   ModelKeyStatus,
+  MutexLevel,
   Node,
   Page,
   PageRow,
   ProbeResult,
+  ProfileSlot,
   RunBrief,
   RunDetail,
+  RunPolicy,
+  RunSettings,
   SaveResult,
   Scenario,
   Suite,
@@ -43,11 +48,21 @@ export const userApi = {
   resetPassword: (id: number, password: string) => post<{ ok: boolean }>(`/users/${id}/password`, { password }),
 }
 
-/** 模型 API Key（仅管理员）：只写不读，值落 secrets/，保存后对后续内核调用生效。 */
+/** 模型配置（仅管理员）：Key 只写不读；API 地址/模型名可回显。值落 secrets/，保存后对后续内核调用生效。 */
 export const settingsApi = {
-  modelKeys: () => get<{ items: ModelKeyStatus[] }>('/settings/model-keys'),
+  modelKeys: () =>
+    get<{ items: ModelKeyStatus[]; endpoints: ModelEndpointStatus[] }>('/settings/model-keys'),
   saveModelKeys: (body: Record<string, string | null>) =>
-    put<{ items: ModelKeyStatus[]; changed: string[] }>('/settings/model-keys', body),
+    put<{ items: ModelKeyStatus[]; endpoints: ModelEndpointStatus[]; changed: string[] }>(
+      '/settings/model-keys',
+      body,
+    ),
+  /** 并行调度（仅管理员）：现读现用，保存即唤醒调度器，对之后新派发的运行生效。 */
+  run: () => get<RunSettings>('/settings/run'),
+  saveRun: (body: { max?: number; k?: number }) => put<RunSettings>('/settings/run', body),
+  /** 运行策略（仅管理员）：两个模型开关 + 回放缓存/严判；提交新运行时快照进台账。 */
+  policy: () => get<{ policy: RunPolicy }>('/settings/policy'),
+  savePolicy: (body: Partial<RunPolicy>) => put<{ policy: RunPolicy }>('/settings/policy', body),
 }
 
 export const nodeApi = {
@@ -85,6 +100,8 @@ export const caseApi = {
   detail: (id: string) => get<CaseDetail>(`/cases/${id}`),
   save: (id: string, body: { yaml_text: string; version: number; comment?: string }) =>
     put<SaveResult>(`/cases/${id}`, body),
+  /** 用例级互斥挡位：单独字段，不走 YAML 保存与版本号。 */
+  patch: (id: string, body: { mutex: MutexLevel }) => patch<CaseBrief>(`/cases/${id}`, body),
   validate: (id: string, yaml_text?: string) =>
     post<CompileResult>(`/cases/${id}/validate`, yaml_text === undefined ? {} : { yaml_text }),
   draft: (id: string, desc: string, url = '') => post<DraftResult>(`/cases/${id}/drafts`, { desc, url }),
@@ -110,6 +127,12 @@ export const envApi = {
   delSecret: (id: number, key: string) => del(`/envs/${id}/secrets/${encodeURIComponent(key)}`),
   probe: (id: number, url = '') => post<ProbeResult>(`/envs/${id}/probe`, { url }),
   pages: (id: number) => get<{ items: PageRow[]; total: number }>(`/envs/${id}/pages`),
+}
+
+export const profileApi = {
+  list: () => get<{ items: ProfileSlot[] }>('/profiles'),
+  clear: (slot: string) => del<{ slot: string; cleared: boolean; freed: number }>(`/profiles/${slot}`),
+  clearAll: () => del<{ cleared: number; freed: number }>('/profiles'),
 }
 
 export const suiteApi = {

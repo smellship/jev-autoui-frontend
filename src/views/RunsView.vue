@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { runApi } from '@/api'
 import type { RunBrief, RunStatus } from '@/api/types'
 import HtmlViewer from '@/components/HtmlViewer.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { downloadArtifact, openArtifactTab } from '@/utils/artifact'
 import { formatDateTime, formatDuration, formatTime } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
+import { policyDetail, policyLabel } from '@/utils/policy'
 
 const router = useRouter()
 const ui = useUiStore()
+const auth = useAuthStore()
 
 const STATUSES: Array<{ value: RunStatus; label: string }> = [
   { value: 'queued', label: '排队中' },
@@ -112,13 +115,43 @@ async function rebuild(row: RunBrief): Promise<void> {
   }
 }
 
+/** 停止权限与后端一致：管理员不限，否则仅发起人本人。 */
+function canStop(row: RunBrief): boolean {
+  if (!['queued', 'running'].includes(row.status)) return false
+  if (auth.isAdmin) return true
+  return row.user_id !== null && row.user_id === auth.user?.id
+}
+
+function mutexText(level: string): string {
+  return level === 'account' ? '同账号互斥' : '同环境互斥'
+}
+
+async function stopRun(row: RunBrief): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `停止运行 ${row.id}？（排队中的会立刻取消；运行中的会终止内核子进程，产物可能不完整）`,
+      '停止运行',
+      { type: 'warning', confirmButtonText: '停止', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await runApi.stop(row.id)
+    ElMessage.success(`已请求停止 ${row.id}`)
+    void load()
+  } catch (error) {
+    showApiError(error, '停止失败')
+  }
+}
+
 function csvCell(value: unknown): string {
   const text = value === null || value === undefined ? '' : String(value)
   return `"${text.replace(/"/g, '""')}"`
 }
 
 async function exportCsv(): Promise<void> {
-  const header = ['运行 id', '用例', '用例名', '场景', '环境', '模式', '状态', '内核状态',
+  const header = ['运行 id', '用例', '用例名', '场景', '环境', '模式', '策略', '状态', '内核状态',
     '开始', '结束', '用时(ms)', '触发人', '说明']
   const lines = [header.map(csvCell).join(',')]
   const pageSize = 200
@@ -137,8 +170,8 @@ async function exportCsv(): Promise<void> {
       })
       for (const row of data.items) {
         lines.push([row.id, row.case_id, row.case_name, row.scenario_name, row.env, row.mode,
-          row.status, row.kernel_status, row.started_at, row.finished_at, row.duration_ms,
-          row.triggered_by, row.detail].map(csvCell).join(','))
+          policyLabel(row.policy), row.status, row.kernel_status, row.started_at, row.finished_at,
+          row.duration_ms, row.triggered_by, row.detail].map(csvCell).join(','))
       }
       fetched += data.items.length
       if (!data.items.length || fetched >= data.total) break
@@ -187,7 +220,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page" v-loading="loading">
-    <div class="crumb"><b>运行记录</b><span class="muted" style="margin-left: 8px">服务端串行执行，队列即台账顺序</span></div>
+    <div class="crumb">
+      <b>运行记录</b>
+      <span class="muted" style="margin-left: 8px">
+        队列先进先出；并发上限与每人路数由管理员在设置页配置，用例可设互斥挡位（同环境 / 同账号）
+      </span>
+    </div>
 
     <el-card style="margin-bottom: 12px">
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
@@ -238,9 +276,32 @@ onBeforeUnmount(() => {
             <div class="muted">{{ row.mode }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="结果" width="120">
+        <el-table-column label="策略" min-width="104">
+          <template #default="{ row }">
+            <el-tooltip :content="policyDetail(row.policy)" placement="top">
+              <span class="muted" style="font-size: 12px">{{ policyLabel(row.policy) }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="130">
           <template #default="{ row }">
             <StatusTag :status="row.status" />
+            <div v-if="row.status === 'queued' && row.queue_position" class="muted">
+              队内第 {{ row.queue_position }} 位
+            </div>
+            <div
+              v-if="row.mutex !== 'none' && ['queued', 'running'].includes(row.status)"
+              style="margin-top: 2px"
+            >
+              <el-tag
+                size="small"
+                type="warning"
+                disable-transitions
+                :title="`${mutexText(row.mutex)}：与相同${row.mutex === 'account' ? '环境同账号' : '环境'}的运行互相排队`"
+              >
+                互斥·{{ row.mutex === 'env' ? '环境' : '账号' }}
+              </el-tag>
+            </div>
             <div v-if="row.kernel_status" class="muted">{{ row.kernel_status }}</div>
           </template>
         </el-table-column>
@@ -254,11 +315,12 @@ onBeforeUnmount(() => {
           <template #default="{ row }"><span class="muted">{{ row.triggered_by || '—' }}</span></template>
         </el-table-column>
         <el-table-column prop="detail" label="说明" min-width="180" show-overflow-tooltip />
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="openRun(row)">打开</el-button>
             <el-button size="small" text @click="openReport(row)">报告</el-button>
             <el-button size="small" text @click="rebuild(row)">重出</el-button>
+            <el-button v-if="canStop(row)" size="small" text type="danger" @click="stopRun(row)">停止</el-button>
             <el-dropdown trigger="click">
               <el-button size="small" text>更多</el-button>
               <template #dropdown>

@@ -10,6 +10,7 @@ import type {
   CaseDetail,
   ImportReport,
   LintItem,
+  MutexLevel,
   RunBrief,
   RunDetail,
   TraceRow,
@@ -25,14 +26,17 @@ import StatusTag from '@/components/StatusTag.vue'
 import TraceLog from '@/components/TraceLog.vue'
 import YamlEditor from '@/components/YamlEditor.vue'
 import { useRunStarter } from '@/composables/useRunStarter'
+import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { downloadArtifact, openArtifactTab } from '@/utils/artifact'
 import { formatDateTime, formatDuration, formatSize, formatTime, stepChipClass, stepStatusText } from '@/utils/format'
 import { showApiError } from '@/utils/notify'
+import { policyDetail, policyLabel } from '@/utils/policy'
 
 const route = useRoute()
 const router = useRouter()
 const ui = useUiStore()
+const auth = useAuthStore()
 const { runCase } = useRunStarter()
 
 const caseId = computed(() => String(route.params.id || ''))
@@ -74,9 +78,18 @@ const activeRun = ref<RunDetail | null>(null)
 const liveRows = ref<TraceRow[]>([])
 const activeTab = ref('steps')
 const stopping = ref(false)
+const mutexDraft = ref<MutexLevel>('none')
+const savingMutex = ref(false)
 const liveStep = ref<number | null>(null)
 const reportView = ref<{ visible: boolean; url: string }>({ visible: false, url: '' })
 let unsubscribe: (() => void) | null = null
+
+const MUTEX_LABELS: Record<MutexLevel, string> = { none: '不限制', env: '同环境', account: '同账号' }
+const MUTEX_OPTIONS: Array<{ value: MutexLevel; label: string }> = [
+  { value: 'none', label: '互斥：不限制' },
+  { value: 'env', label: '互斥：同环境' },
+  { value: 'account', label: '互斥：同账号' },
+]
 
 const dirty = computed(() => yamlText.value !== savedText.value)
 const envMismatch = computed(() => {
@@ -85,6 +98,12 @@ const envMismatch = computed(() => {
   return Boolean(declared && chosen && declared !== chosen)
 })
 const running = computed(() => ['queued', 'running'].includes(activeRun.value?.status || ''))
+const canStopRun = computed(() => {
+  const run = activeRun.value
+  if (!run || !running.value) return false
+  if (auth.isAdmin) return true
+  return run.user_id !== null && run.user_id === auth.user?.id
+})
 const planStepCount = computed(() => ((plan.value as { steps?: unknown[] } | null)?.steps || []).length)
 
 async function load(silent = false): Promise<void> {
@@ -92,6 +111,7 @@ async function load(silent = false): Promise<void> {
   try {
     const data = await caseApi.detail(caseId.value)
     detail.value = data
+    mutexDraft.value = data.mutex || 'none'
     yamlText.value = data.yaml_text || ''
     savedText.value = data.yaml_text || ''
     errors.value = []
@@ -454,18 +474,21 @@ function addStep(key: string): void {
 }
 
 /** 断言模板：类型与内核断言白名单一致（ui_agent/verify/asserts.py 的 KINDS） */
-const ASSERT_TEMPLATES: Array<{ key: string; label: string; desc: string }> = [
+const ASSERT_TEMPLATES: Array<{ key: string; label: string; desc: string; snippet?: string }> = [
   { key: 'text_contains', label: '文本包含', desc: '页面可见文字里出现这段内容' },
   { key: 'url_contains', label: '地址包含', desc: '当前地址里包含这段路径 / 参数' },
   { key: 'title_contains', label: '标题包含', desc: '浏览器标签标题里出现这段文字' },
   { key: 'element_exists', label: '元素存在', desc: '页面上找得到这个元素（按描述匹配）' },
   { key: 'element_absent', label: '元素不存在', desc: '页面上找不到这个元素（如浮层已关）' },
   { key: 'element_value', label: '元素值等于', desc: '控件当前值 = 期望值，写法 描述|期望值' },
+  { key: 'element_count', label: '元素个数等于', desc: '匹配到的元素个数 = 期望个数，写法 描述|个数' },
+  { key: 'element_attribute', label: '元素属性等于', desc: '读原始 DOM 属性（href / src / aria-label），用完整写法',
+    snippet: '{kind: element_attribute, value: "", attr: "", expected: ""}' },
 ]
 
 function addCheck(key: string): void {
   const tpl = ASSERT_TEMPLATES.find((item) => item.key === key) ?? ASSERT_TEMPLATES[0]
-  const ok = editorRef.value?.appendCheck(`${tpl.key}: `)
+  const ok = editorRef.value?.appendCheck(tpl.snippet ?? `${tpl.key}: `)
   if (ok) ElMessage.success(`已给最后一步加上「${tpl.label}」断言，把值补上：${tpl.desc}`)
   else ElMessage.warning('还没有步骤，先点「新增步骤」')
 }
@@ -588,6 +611,25 @@ async function stopRun(): Promise<void> {
     showApiError(error, '停止失败')
   } finally {
     stopping.value = false
+  }
+}
+
+/** 互斥挡位：单独 PATCH，不走 YAML 保存/版本号；失败回滚下拉显示。 */
+async function saveMutex(raw: unknown): Promise<void> {
+  const level = raw as MutexLevel
+  if (!detail.value || level === detail.value.mutex) return
+  savingMutex.value = true
+  try {
+    const updated = await caseApi.patch(caseId.value, { mutex: level })
+    detail.value = { ...detail.value, mutex: updated.mutex }
+    ElMessage.success(level === 'none'
+      ? '已取消互斥：这个用例可以和其他运行随时并行'
+      : `已设为「${MUTEX_LABELS[level]}」互斥：命中相同${level === 'env' ? '环境' : '环境下相同账号'}时会排队等前面跑完`)
+  } catch (error) {
+    mutexDraft.value = detail.value.mutex || 'none'
+    showApiError(error, '修改互斥挡位失败')
+  } finally {
+    savingMutex.value = false
   }
 }
 
@@ -731,6 +773,9 @@ onBeforeRouteLeave(async () => {
             <b>{{ detail?.name }}</b>
             <el-tag size="small" disable-transitions>{{ detail?.priority }}</el-tag>
             <el-tag v-for="tag in detail?.tags || []" :key="tag" size="small" type="info" disable-transitions>{{ tag }}</el-tag>
+            <el-tag v-if="detail && detail.mutex !== 'none'" size="small" type="warning" disable-transitions>
+              互斥·{{ MUTEX_LABELS[detail.mutex] }}
+            </el-tag>
             <span v-if="dirty" class="muted" style="color: #e6a23c">未保存</span>
             <div style="flex: 1" />
             <el-button size="small" :loading="validating" @click="validate()">校验</el-button>
@@ -860,15 +905,43 @@ onBeforeRouteLeave(async () => {
       <template #header>
         <div class="run-bar">
           <b>运行</b>
+          <el-tooltip placement="top">
+            <template #content>
+              <div style="max-width: 340px; line-height: 1.7">
+                决定这个用例能否和别人同时跑：<br />
+                不限制：默认，随时可跑、可并行<br />
+                同环境：同一环境下同时只跑一个（双向检查：和开着互斥的邻居也会撞）<br />
+                同账号：同环境下账号密码相同才互斥；解析不到账号时按环境挡降级
+              </div>
+            </template>
+            <el-select
+              v-model="mutexDraft"
+              size="small"
+              style="width: 124px"
+              :disabled="savingMutex || !detail"
+              @change="saveMutex"
+            >
+              <el-option v-for="item in MUTEX_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-tooltip>
           <el-button size="small" type="primary" @click="startRun('debug')">运行 debug</el-button>
           <el-button size="small" @click="startRun('ci')">运行 ci</el-button>
-          <el-button v-if="running" size="small" type="danger" :loading="stopping" @click="stopRun()">停止</el-button>
+          <el-tooltip v-if="running && !canStopRun" content="只有发起人或管理员可以停止这个运行" placement="top">
+            <span><el-button size="small" disabled>停止</el-button></span>
+          </el-tooltip>
+          <el-button v-else-if="running" size="small" type="danger" :loading="stopping" @click="stopRun()">停止</el-button>
           <el-button v-if="activeRun" size="small" @click="rebuildReport()">重出报告</el-button>
           <el-button v-if="activeRun?.report_exists" size="small" text type="primary" @click="openReport()">打开报告</el-button>
           <div style="flex: 1" />
           <template v-if="activeRun">
             <StatusTag :status="activeRun.status" />
+            <span v-if="activeRun.status === 'queued' && activeRun.queue_position" class="muted">
+              队列第 {{ activeRun.queue_position }} 位
+            </span>
             <span class="muted">{{ activeRun.mode }} · {{ activeRun.env }} · 用时 {{ formatDuration(activeRun.duration_ms) }}</span>
+            <el-tag size="small" type="info" disable-transitions :title="policyDetail(activeRun.policy)">
+              策略 · {{ policyLabel(activeRun.policy) }}
+            </el-tag>
           </template>
           <span v-else class="muted">还没有运行记录</span>
           <el-button size="small" text type="primary" :disabled="!plan" @click="planView = true">
@@ -876,6 +949,14 @@ onBeforeRouteLeave(async () => {
           </el-button>
         </div>
       </template>
+
+      <el-alert
+        v-if="activeRun?.mutex_note"
+        type="warning"
+        :closable="false"
+        style="margin-bottom: 8px"
+        :title="activeRun.mutex_note"
+      />
 
       <div v-if="activeRun" class="steps-bar" style="margin-bottom: 8px">
         <span

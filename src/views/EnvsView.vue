@@ -2,8 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { envApi } from '@/api'
-import type { Env, PageRow } from '@/api/types'
+import { envApi, profileApi } from '@/api'
+import type { Env, PageRow, ProfileSlot } from '@/api/types'
 import ProbeButton from '@/components/ProbeButton.vue'
 import { useUiStore } from '@/stores/ui'
 import { formatDateTime, formatTime } from '@/utils/format'
@@ -21,6 +21,12 @@ const pagesLoading = ref(false)
 
 const createVisible = ref(false)
 const saving = ref(false)
+
+const profileDialogVisible = ref(false)
+const profileSlots = ref<ProfileSlot[]>([])
+const profileLoading = ref(false)
+const clearingSlot = ref<string | null>(null)
+const clearingAll = ref(false)
 
 const form = ref({ name: '', label: '', base_url: '', auth: 'unknown', timeout_ms: 30000, note: '' })
 const secretInput = ref<Record<string, string>>({})
@@ -236,6 +242,74 @@ async function removeEnv(): Promise<void> {
   }
 }
 
+async function openProfileDialog(): Promise<void> {
+  profileDialogVisible.value = true
+  await loadProfileSlots()
+}
+
+async function loadProfileSlots(): Promise<void> {
+  profileLoading.value = true
+  try {
+    const data = await profileApi.list()
+    profileSlots.value = data.items
+  } catch (error) {
+    showApiError(error, '取登录态清单失败')
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function clearSlot(slot: string): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`清除槽「${slot}」的登录态？下次运行会重新登录。`, '清除登录态', {
+      type: 'warning',
+      confirmButtonText: '清除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  clearingSlot.value = slot
+  try {
+    const result = await profileApi.clear(slot)
+    ElMessage.success(`已清除「${slot}」（释放 ${formatSize(result.freed)}）`)
+    await loadProfileSlots()
+  } catch (error) {
+    showApiError(error, '清除失败')
+  } finally {
+    clearingSlot.value = null
+  }
+}
+
+async function clearAllSlots(): Promise<void> {
+  try {
+    await ElMessageBox.confirm('清除全部登录态？下次运行会重新登录。', '清除全部', {
+      type: 'warning',
+      confirmButtonText: '全部清除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  clearingAll.value = true
+  try {
+    const result = await profileApi.clearAll()
+    ElMessage.success(`已清除 ${result.cleared} 个槽（释放 ${formatSize(result.freed)}）`)
+    await loadProfileSlots()
+  } catch (error) {
+    showApiError(error, '清除失败')
+  } finally {
+    clearingAll.value = false
+  }
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
 onMounted(() => void load(false))
 </script>
 
@@ -244,6 +318,8 @@ onMounted(() => void load(false))
     <div class="crumb">
       <b>环境管理</b>
       <span class="muted" style="margin-left: 8px">地址与密钥由服务端保存；密钥只写不读，页面只显示「已设置」</span>
+      <div style="flex: 1" />
+      <el-button size="small" @click="openProfileDialog()">清除登录态</el-button>
     </div>
 
     <div style="display: flex; gap: 12px; align-items: flex-start">
@@ -416,6 +492,48 @@ onMounted(() => void load(false))
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="createEnv()">新建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="profileDialogVisible" title="清除登录态" width="640px">
+      <el-alert
+        type="info"
+        :closable="false"
+        style="margin-bottom: 12px"
+        title="每个（平台用户, 路）组合有一个独立的 Chromium 登录态槽；清除后下次运行会重新登录。"
+      />
+      <div v-loading="profileLoading">
+        <el-table v-if="profileSlots.length" :data="profileSlots" size="small" empty-text="还没有登录态">
+          <el-table-column prop="slot" label="槽" min-width="200" />
+          <el-table-column label="大小" width="120">
+            <template #default="{ row }">{{ formatSize(row.size) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button
+                size="small"
+                type="danger"
+                text
+                :loading="clearingSlot === row.slot"
+                @click="clearSlot(row.slot)"
+              >
+                清除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-else class="muted" style="text-align: center; padding: 20px">还没有登录态</div>
+      </div>
+      <template #footer>
+        <el-button @click="profileDialogVisible = false">关闭</el-button>
+        <el-button
+          v-if="profileSlots.length"
+          type="danger"
+          :loading="clearingAll"
+          @click="clearAllSlots()"
+        >
+          全部清除
+        </el-button>
       </template>
     </el-dialog>
   </div>

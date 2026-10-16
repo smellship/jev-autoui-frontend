@@ -66,13 +66,20 @@ export const MODE_TEXT: Record<Mode, string> = { debug: 'debug', ci: 'ci' }
 
 export function formatTime(value: string | null | undefined): string {
   if (!value) return '—'
-  const text = value.replace('T', ' ')
-  return text.length >= 16 ? text.slice(5, 16) : text
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    const text = value.replace('T', ' ')
+    return text.length >= 16 ? text.slice(5, 16) : text
+  }
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—'
-  return value.replace('T', ' ').slice(0, 19)
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ').slice(0, 19)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 export function formatDuration(ms: number | null | undefined): string {
@@ -81,6 +88,10 @@ export function formatDuration(ms: number | null | undefined): string {
   const minutes = Math.floor(total / 60)
   const seconds = total % 60
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
 }
 
 export function formatSize(bytes: number): string {

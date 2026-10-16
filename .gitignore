@@ -7,4 +7,5 @@ dist/
 !.env.example
 npm-debug.log*
 yarn-error.log*
+.vite-dev.log
 .DS_Store
